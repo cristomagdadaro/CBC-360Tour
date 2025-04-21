@@ -76,17 +76,94 @@
 			-o-transition: opacity 0.5s;
 		}
 
+		#loadingIcon {
+			width: 150px;
+			height: auto;
+    	}
+
+		/* Small screens (phones) */
+		@media (max-width: 480px) {
+			#loadingIcon {
+				width: 32px;
+			}
+
+			#loadingMessage {
+				font-size: 14px;
+			}
+		}
+
+		/* Tablets and small laptops */
+		@media (min-width: 481px) and (max-width: 768px) {
+			#loadingIcon {
+				width: 64px;
+			}
+
+			#loadingMessage {
+				font-size: 16px;
+			}
+		}
+
+		/* Medium screens (normal laptops/desktops) */
+		@media (min-width: 769px) and (max-width: 1200px) {
+			#loadingIcon {
+				width: 150px;
+			}
+			#loadingMessage {
+				font-size: 20px;
+			}
+		}
+
+		/* Large screens (big desktops, 4K displays) */
+		@media (min-width: 1201px) {
+			#loadingIcon {
+				width: 180px;
+				font-size: 24px;
+			}
+
+			#loadingMessage {
+				font-size: 24px;
+			}
+		}
 	</style>
 	<link rel="stylesheet" href="fonts.css?v=1731920986256">
 </head>
 
 <body>
 <div id="preloadContainer" style="background: radial-gradient(circle, rgba(20, 80, 70, 0.8) 0%, #08322C 70%); display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
-    <img src="/misc/icon150.png" style="display: block; margin-bottom: 10px;" />
-    <span style="letter-spacing: 0px; color: #ffffff; font-size: 20px; font-family: Arial, Helvetica, sans-serif; text-align: center;">
-        Loading virtual tour. Please wait...
-    </span>
+    <img id="loadingIcon" src="/misc/icon150.png"  alt="DA-CBC Logo"/>
+    <span id="loadingMessage" style="letter-spacing: 0; color: #ffffff; font-family: Arial, Helvetica, sans-serif; text-align: center; margin-top:5px;">
+            Loading virtual tour. Please wait...
+        </span>
 </div>
 
-	<div id="viewer" class="fill-viewport"></div>
+<!-- Tour Viewer -->
+<div id="viewer" class="fill-viewport"></div>
+
+<!-- Global Visit Counter -->
+<div id="visitCounter" style="
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.6);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 8px;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        z-index: 9999;">
+    Loading total visits...
+</div>
+
 </body>
+
+<script>
+    fetch(`https://pin.philrice.gov.ph/api/cbc360tour/visitor/counter`)
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('visitCounter').innerText = `Visited ${data.value} time(s)`;
+        })
+        .catch(err => {
+            document.getElementById('visitCounter').innerText = 'Visit count unavailable';
+            console.error(err);
+        });
+</script>
