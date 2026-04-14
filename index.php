@@ -1,248 +1,9 @@
 <?php
-$dataDir = __DIR__ . DIRECTORY_SEPARATOR . 'data';
-$sqliteFile = $dataDir . DIRECTORY_SEPARATOR . 'guest_analytics.sqlite';
-$fallbackFile = $dataDir . DIRECTORY_SEPARATOR . 'guest_analytics.json';
-$visitorCookie = 'cbc360tour_guest_id';
-$isSecure = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-$cookieOptions = [
-    'expires' => time() + 31536000,
-    'path' => '/',
-    'secure' => $isSecure,
-    'httponly' => false,
-    'samesite' => 'Lax',
-];
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'modules' . DIRECTORY_SEPARATOR . 'GuestAnalytics' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
-if (!is_dir($dataDir)) {
-    @mkdir($dataDir, 0777, true);
-}
-
-function generateId(): string
-{
-    try {
-        return bin2hex(random_bytes(16));
-    } catch (Throwable $e) {
-        return sha1(uniqid((string) mt_rand(), true));
-    }
-}
-
-function getClientIp(): string
-{
-    foreach (['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $key) {
-        if (empty($_SERVER[$key])) {
-            continue;
-        }
-
-        $value = trim(explode(',', (string) $_SERVER[$key])[0]);
-        if ($value !== '') {
-            return $value;
-        }
-    }
-
-    return 'unknown';
-}
-
-function buildGuestPayload(string $visitorId): array
-{
-    $ipAddress = getClientIp();
-    $userAgent = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
-    $acceptLanguage = (string) ($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '');
-    $referrer = (string) ($_SERVER['HTTP_REFERER'] ?? '');
-    $requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
-    $path = parse_url($requestUri, PHP_URL_PATH) ?: '/';
-    $query = (string) parse_url($requestUri, PHP_URL_QUERY);
-    $isMobile = (bool) preg_match('/Mobile|Android|iPhone|iPad|iPod/i', $userAgent);
-    $nowUtc = gmdate('c');
-
-    return [
-        'visitor_id' => $visitorId,
-        'session_id' => generateId(),
-        'visited_at_utc' => $nowUtc,
-        'ip_hash' => hash('sha256', $ipAddress),
-        'user_agent' => $userAgent,
-        'accept_language' => $acceptLanguage,
-        'referrer' => $referrer,
-        'landing_path' => $path,
-        'query_string' => $query,
-        'host' => (string) ($_SERVER['HTTP_HOST'] ?? ''),
-        'is_mobile' => $isMobile ? 1 : 0,
-    ];
-}
-
-function writeGuestToSqlite(string $sqliteFile, array $payload): ?array
-{
-    if (!class_exists('SQLite3')) {
-        return null;
-    }
-
-    $db = new SQLite3($sqliteFile);
-    $db->busyTimeout(5000);
-    $db->exec('PRAGMA journal_mode = WAL');
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS visitors (
-            visitor_id TEXT PRIMARY KEY,
-            first_seen_utc TEXT NOT NULL,
-            last_seen_utc TEXT NOT NULL,
-            visit_count INTEGER NOT NULL DEFAULT 0,
-            ip_hash TEXT,
-            user_agent TEXT,
-            accept_language TEXT,
-            referrer TEXT,
-            landing_path TEXT,
-            query_string TEXT,
-            host TEXT,
-            is_mobile INTEGER NOT NULL DEFAULT 0
-        )'
-    );
-    $db->exec(
-        'CREATE TABLE IF NOT EXISTS visits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            visitor_id TEXT NOT NULL,
-            session_id TEXT NOT NULL,
-            visited_at_utc TEXT NOT NULL,
-            ip_hash TEXT,
-            user_agent TEXT,
-            accept_language TEXT,
-            referrer TEXT,
-            landing_path TEXT,
-            query_string TEXT,
-            host TEXT,
-            is_mobile INTEGER NOT NULL DEFAULT 0
-        )'
-    );
-
-    $db->exec('BEGIN IMMEDIATE');
-
-    $insertVisit = $db->prepare(
-        'INSERT INTO visits (
-            visitor_id, session_id, visited_at_utc, ip_hash, user_agent, accept_language,
-            referrer, landing_path, query_string, host, is_mobile
-        ) VALUES (
-            :visitor_id, :session_id, :visited_at_utc, :ip_hash, :user_agent, :accept_language,
-            :referrer, :landing_path, :query_string, :host, :is_mobile
-        )'
-    );
-
-    foreach ($payload as $key => $value) {
-        $insertVisit->bindValue(':' . $key, $value, is_int($value) ? SQLITE3_INTEGER : SQLITE3_TEXT);
-    }
-    $insertVisit->execute();
-
-    $upsertVisitor = $db->prepare(
-        'INSERT INTO visitors (
-            visitor_id, first_seen_utc, last_seen_utc, visit_count, ip_hash, user_agent,
-            accept_language, referrer, landing_path, query_string, host, is_mobile
-        ) VALUES (
-            :visitor_id, :visited_at_utc, :visited_at_utc, 1, :ip_hash, :user_agent,
-            :accept_language, :referrer, :landing_path, :query_string, :host, :is_mobile
-        )
-        ON CONFLICT(visitor_id) DO UPDATE SET
-            last_seen_utc = excluded.last_seen_utc,
-            visit_count = visitors.visit_count + 1,
-            ip_hash = excluded.ip_hash,
-            user_agent = excluded.user_agent,
-            accept_language = excluded.accept_language,
-            referrer = excluded.referrer,
-            landing_path = excluded.landing_path,
-            query_string = excluded.query_string,
-            host = excluded.host,
-            is_mobile = excluded.is_mobile'
-    );
-
-    foreach ($payload as $key => $value) {
-        $upsertVisitor->bindValue(':' . $key, $value, is_int($value) ? SQLITE3_INTEGER : SQLITE3_TEXT);
-    }
-    $upsertVisitor->execute();
-
-    $stats = [
-        'visit_count' => (int) $db->querySingle('SELECT COUNT(*) FROM visits'),
-        'unique_visitors' => (int) $db->querySingle('SELECT COUNT(*) FROM visitors'),
-        'storage_engine' => 'sqlite',
-    ];
-
-    $db->exec('COMMIT');
-    $db->close();
-
-    return $stats;
-}
-
-function writeGuestToJson(string $fallbackFile, array $payload): array
-{
-    $handle = fopen($fallbackFile, 'c+');
-    if (!$handle) {
-        return [
-            'visit_count' => 0,
-            'unique_visitors' => 0,
-            'storage_engine' => 'unavailable',
-        ];
-    }
-
-    flock($handle, LOCK_EX);
-    rewind($handle);
-    $raw = stream_get_contents($handle);
-    $data = json_decode($raw ?: '', true);
-    if (!is_array($data)) {
-        $data = ['visits' => [], 'visitors' => []];
-    }
-
-    $visitorId = $payload['visitor_id'];
-    if (!isset($data['visitors'][$visitorId])) {
-        $data['visitors'][$visitorId] = [
-            'visitor_id' => $visitorId,
-            'first_seen_utc' => $payload['visited_at_utc'],
-            'last_seen_utc' => $payload['visited_at_utc'],
-            'visit_count' => 0,
-            'ip_hash' => $payload['ip_hash'],
-            'user_agent' => $payload['user_agent'],
-            'accept_language' => $payload['accept_language'],
-            'referrer' => $payload['referrer'],
-            'landing_path' => $payload['landing_path'],
-            'query_string' => $payload['query_string'],
-            'host' => $payload['host'],
-            'is_mobile' => $payload['is_mobile'],
-        ];
-    }
-
-    $data['visitors'][$visitorId]['last_seen_utc'] = $payload['visited_at_utc'];
-    $data['visitors'][$visitorId]['visit_count']++;
-    $data['visitors'][$visitorId]['ip_hash'] = $payload['ip_hash'];
-    $data['visitors'][$visitorId]['user_agent'] = $payload['user_agent'];
-    $data['visitors'][$visitorId]['accept_language'] = $payload['accept_language'];
-    $data['visitors'][$visitorId]['referrer'] = $payload['referrer'];
-    $data['visitors'][$visitorId]['landing_path'] = $payload['landing_path'];
-    $data['visitors'][$visitorId]['query_string'] = $payload['query_string'];
-    $data['visitors'][$visitorId]['host'] = $payload['host'];
-    $data['visitors'][$visitorId]['is_mobile'] = $payload['is_mobile'];
-    $data['visits'][] = $payload;
-
-    ftruncate($handle, 0);
-    rewind($handle);
-    fwrite($handle, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-    fflush($handle);
-    flock($handle, LOCK_UN);
-    fclose($handle);
-
-    return [
-        'visit_count' => count($data['visits']),
-        'unique_visitors' => count($data['visitors']),
-        'storage_engine' => 'json-fallback',
-    ];
-}
-
-$visitorId = !empty($_COOKIE[$visitorCookie]) ? (string) $_COOKIE[$visitorCookie] : generateId();
-if (empty($_COOKIE[$visitorCookie])) {
-    @setcookie($visitorCookie, $visitorId, $cookieOptions);
-    $_COOKIE[$visitorCookie] = $visitorId;
-}
-
-$guestPayload = buildGuestPayload($visitorId);
-$stats = writeGuestToSqlite($sqliteFile, $guestPayload);
-if ($stats === null) {
-    $stats = writeGuestToJson($fallbackFile, $guestPayload);
-}
-
-$visitCount = (int) ($stats['visit_count'] ?? 0);
-$uniqueVisitors = (int) ($stats['unique_visitors'] ?? 0);
-$storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
+$analytics = guestAnalyticsBootstrap(__DIR__);
+$visitCount = (int) ($analytics['stats']['visit_count'] ?? 0);
+$uniqueVisitors = (int) ($analytics['stats']['unique_visitors'] ?? 0);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -281,7 +42,6 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
           as="image"/>
     <link rel="preload" href="media/panorama_0980CA67_24E0_DFA6_41A8_442675557741_0/b/3/0_0.jpg?v=1731920986256"
           as="image"/>
-    <meta name="description" content="Virtual Tour"/>
     <meta name="theme-color" content="#666666"/>
     <script src="script.js?v=1731920986256"></script>
     <style type="text/css">
@@ -327,7 +87,6 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
             height: auto;
         }
 
-        /* Small screens (phones) */
         @media (max-width: 480px) {
             #loadingIcon {
                 width: 32px;
@@ -338,7 +97,6 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
             }
         }
 
-        /* Tablets and small laptops */
         @media (min-width: 481px) and (max-width: 768px) {
             #loadingIcon {
                 width: 64px;
@@ -349,7 +107,6 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
             }
         }
 
-        /* Medium screens (normal laptops/desktops) */
         @media (min-width: 769px) and (max-width: 1200px) {
             #loadingIcon {
                 width: 150px;
@@ -360,7 +117,6 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
             }
         }
 
-        /* Large screens (big desktops, 4K displays) */
         @media (min-width: 1201px) {
             #loadingIcon {
                 width: 180px;
@@ -370,6 +126,36 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
             #loadingMessage {
                 font-size: 24px;
             }
+        }
+
+        .footer-tray {
+            position: fixed;
+            right: 10px;
+            bottom: 10px;
+            z-index: 9999;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 10px;
+            max-width: min(92vw, 1080px);
+            font-family: Arial, sans-serif;
+        }
+
+        .footer-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.6);
+            color: #fff;
+            text-decoration: none;
+            font-size: 14px;
+            backdrop-filter: blur(6px);
+        }
+
+        .footer-box:hover {
+            background: rgba(0, 0, 0, 0.75);
         }
     </style>
     <link rel="stylesheet" href="fonts.css?v=1731920986256">
@@ -382,46 +168,28 @@ $storageEngine = (string) ($stats['storage_engine'] ?? 'unavailable');
     <img id="loadingIcon" src="/misc/icon150.png" alt="DA-CBC Logo"/>
     <span id="loadingMessage"
           style="letter-spacing: 0; color: #ffffff; font-family: Arial, Helvetica, sans-serif; text-align: center; margin-top:5px;">
-            Loading virtual tour. Please wait...
-        </span>
+        Loading virtual tour. Please wait...
+    </span>
 </div>
 
-<!-- Tour Viewer -->
-<div style="
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    display: flex;
-    gap: 10px;
-    z-index: 9999;
-    flex-wrap: wrap;
-    align-items: center;
-    font-family: Arial, sans-serif;
-">
-
-    <!-- Feedback -->
-    <a href="https://forms.gle/3eWDkzirTS8DHLPK7" class="footer-box" style="
-        background: rgba(0, 0, 0, 0.6);
-        color: white;
-        padding: 6px 10px;
-        border-radius: 8px;
-        text-decoration: none;
-        font-size: 14px;
-    ">
+<div class="footer-tray">
+    <a href="https://forms.gle/3eWDkzirTS8DHLPK7" class="footer-box" target="_blank" rel="noopener noreferrer">
         Feedback Form
     </a>
-
-    <!-- Global Visit Counter -->
-    <div id="visitCounter" style="
-        background: rgba(0, 0, 0, 0.6);
-        color: white;
-        padding: 6px 10px;
-        border-radius: 8px;
-        font-size: 14px;
-    ">
+    <a href="https://dacbc.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
+        Corporate Website
+    </a>
+    <a href="https://pin.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
+        Plant Breeders and Innovators Network
+    </a>
+    <a href="https://onecbc.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
+        OneCBC
+    </a>
+    <div id="visitCounter" class="footer-box">
         Visits <?php echo number_format($visitCount); ?> | Guests <?php echo number_format($uniqueVisitors); ?>
     </div>
 </div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof loadTour === 'function') {
