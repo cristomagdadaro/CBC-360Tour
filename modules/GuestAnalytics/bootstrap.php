@@ -9,7 +9,9 @@ function guestAnalyticsBootstrap(string $baseDir): array
     $isSecureRequest = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
     $config = guestAnalyticsConfig($baseDir, $isSecureRequest);
     [$payload, $stats] = guestAnalyticsRecordLocal($config);
-    $delivery = guestAnalyticsSendToOneCBC($payload, $config['api'], $config['outbox_file']);
+    $delivery = $payload !== null
+        ? guestAnalyticsSendToOneCBC($payload, $config['api'], $config['outbox_file'])
+        : ['status' => 'skipped'];
 
     return [
         'payload' => $payload,

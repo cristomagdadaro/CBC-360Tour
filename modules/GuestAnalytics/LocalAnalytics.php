@@ -103,6 +103,61 @@ function guestAnalyticsBuildPayload(string $visitorId, string $source): array
     ];
 }
 
+function guestAnalyticsIsTrackableRequest(): bool
+{
+    $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    if ($method !== 'GET' && $method !== 'HEAD') {
+        return false;
+    }
+
+    $requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+    $path = parse_url($requestUri, PHP_URL_PATH) ?: '/';
+    $normalizedPath = strtolower(rtrim($path, '/'));
+    if ($normalizedPath === '') {
+        $normalizedPath = '/';
+    }
+
+    if (!in_array($normalizedPath, ['/', '/index.php'], true)) {
+        return false;
+    }
+
+    $userAgent = trim((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    if ($userAgent === '') {
+        return false;
+    }
+
+    $blockedUserAgentPatterns = [
+        'bot',
+        'spider',
+        'crawler',
+        'scan',
+        'curl',
+        'wget',
+        'python-requests',
+        'go-http-client',
+        'axios',
+        'node-fetch',
+        'bytespider',
+        'headless',
+        'facebookexternalhit',
+        'monitor',
+    ];
+
+    $normalizedUserAgent = strtolower($userAgent);
+    foreach ($blockedUserAgentPatterns as $pattern) {
+        if (strpos($normalizedUserAgent, $pattern) !== false) {
+            return false;
+        }
+    }
+
+    $acceptHeader = strtolower(trim((string) ($_SERVER['HTTP_ACCEPT'] ?? '')));
+    if ($acceptHeader !== '' && strpos($acceptHeader, 'text/html') === false && strpos($acceptHeader, '*/*') === false) {
+        return false;
+    }
+
+    return true;
+}
+
 function guestAnalyticsWriteSqlite(string $sqliteFile, array $payload): ?array
 {
     if (!class_exists('SQLite3')) {
@@ -262,6 +317,15 @@ function guestAnalyticsRecordLocal(array $config): array
 {
     guestAnalyticsEnsureDataDir($config['data_dir']);
 
+    if (!guestAnalyticsIsTrackableRequest()) {
+        return [null, [
+            'visit_count' => guestAnalyticsReadVisitCount($config),
+            'unique_visitors' => guestAnalyticsReadUniqueVisitorCount($config),
+            'storage_engine' => guestAnalyticsDetectStorageEngine($config),
+            'skipped' => true,
+        ]];
+    }
+
     $visitorCookie = $config['visitor_cookie'];
     $visitorId = !empty($_COOKIE[$visitorCookie]) ? (string) $_COOKIE[$visitorCookie] : guestAnalyticsGenerateId();
     if (empty($_COOKIE[$visitorCookie])) {
@@ -276,4 +340,57 @@ function guestAnalyticsRecordLocal(array $config): array
     }
 
     return [$payload, $stats];
+}
+
+function guestAnalyticsDetectStorageEngine(array $config): string
+{
+    if (class_exists('SQLite3') && is_file($config['sqlite_file'])) {
+        return 'sqlite';
+    }
+
+    if (is_file($config['fallback_file'])) {
+        return 'json-fallback';
+    }
+
+    return class_exists('SQLite3') ? 'sqlite' : 'json-fallback';
+}
+
+function guestAnalyticsReadVisitCount(array $config): int
+{
+    if (class_exists('SQLite3') && is_file($config['sqlite_file'])) {
+        $db = new SQLite3($config['sqlite_file']);
+        $count = (int) $db->querySingle('SELECT COUNT(*) FROM visits');
+        $db->close();
+        return $count;
+    }
+
+    if (is_file($config['fallback_file'])) {
+        $raw = file_get_contents($config['fallback_file']);
+        $data = json_decode($raw ?: '', true);
+        if (is_array($data) && isset($data['visits']) && is_array($data['visits'])) {
+            return count($data['visits']);
+        }
+    }
+
+    return 0;
+}
+
+function guestAnalyticsReadUniqueVisitorCount(array $config): int
+{
+    if (class_exists('SQLite3') && is_file($config['sqlite_file'])) {
+        $db = new SQLite3($config['sqlite_file']);
+        $count = (int) $db->querySingle('SELECT COUNT(*) FROM visitors');
+        $db->close();
+        return $count;
+    }
+
+    if (is_file($config['fallback_file'])) {
+        $raw = file_get_contents($config['fallback_file']);
+        $data = json_decode($raw ?: '', true);
+        if (is_array($data) && isset($data['visitors']) && is_array($data['visitors'])) {
+            return count($data['visitors']);
+        }
+    }
+
+    return 0;
 }
