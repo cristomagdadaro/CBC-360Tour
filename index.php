@@ -197,7 +197,7 @@ $uniqueVisitors = (int) ($analytics['stats']['unique_visitors'] ?? 0);
         }
     });
 </script>
-<script src="https://onecbc.philrice.gov.ph/ai/embed.js" data-site-key="cbc360tour" defer></script>
+<script src="https://onecbc.philrice.gov.ph/ai/embed.js" data-site-id="cbc360tour" defer></script>
 </body>
 
 </html>
