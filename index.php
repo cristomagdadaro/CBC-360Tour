@@ -177,13 +177,19 @@ $uniqueVisitors = (int) ($analytics['stats']['unique_visitors'] ?? 0);
         Feedback Form
     </a>
     <a href="https://dacbc.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
-        Corporate Website
+        Corpo Website
     </a>
     <a href="https://pin.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
-        Plant Breeders and Innovators Network
+        PIN System
     </a>
     <a href="https://onecbc.philrice.gov.ph/" class="footer-box" target="_blank" rel="noopener noreferrer">
-        OneCBC
+        OneCBC Portal
+    </a>
+    <a href="https://dacbc.philrice.gov.ph/about-us/privacy-policy" class="footer-box" target="_blank" rel="noopener noreferrer">
+        Privacy Policy
+    </a>
+    <a href="https://dacbc.philrice.gov.ph/about-us/terms-and-conditions" class="footer-box" target="_blank" rel="noopener noreferrer">
+        Terms of Service
     </a>
     <div id="visitCounter" class="footer-box">
         Visits <?php echo number_format($visitCount); ?> | Guests <?php echo number_format($uniqueVisitors); ?>
