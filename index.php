@@ -1,4 +1,9 @@
 <?php
+// Load configuration variables
+if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . 'config.php')) {
+    require_once __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+}
+
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'modules' . DIRECTORY_SEPARATOR . 'GuestAnalytics' . DIRECTORY_SEPARATOR . 'bootstrap.php';
 
 $analytics = guestAnalyticsBootstrap(__DIR__);
@@ -203,7 +208,7 @@ $uniqueVisitors = (int) ($analytics['stats']['unique_visitors'] ?? 0);
         }
     });
 </script>
-<script src="https://onecbc.philrice.gov.ph/ai/embed.js" data-site-id="cbc360tour" defer></script>
+<script src="https://onecbc.philrice.gov.ph/ai/embed.js?v=3" data-site-id="cbc360tour" data-token="<?php echo defined('SPROUTAI_API_TOKEN') ? htmlspecialchars(SPROUTAI_API_TOKEN) : ''; ?>" defer></script>
 </body>
 
 </html>
