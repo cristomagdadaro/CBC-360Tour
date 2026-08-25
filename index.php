@@ -19,7 +19,21 @@ $uniqueVisitors = (int) ($analytics['stats']['unique_visitors'] ?? 0);
     <meta name="viewport" id="metaViewport"
           content="user-scalable=no, initial-scale=1, width=device-width, viewport-fit=cover"
           data-tdv-general-scale="1"/>
-    <meta name="description" content="Virtual Tour: DA-Crop Biotechnology Center"/>
+    <meta name="description" content="Explore the DA-Crop Biotechnology Center through an immersive 360 virtual tour featuring research spaces, facilities, and innovation highlights."/>
+    <link rel="canonical" href="https://cbc360tour.philrice.gov.ph/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="DA-CBC Virtual Tour">
+    <meta property="og:url" content="https://cbc360tour.philrice.gov.ph/">
+    <meta property="og:title" content="DA-CBC Virtual Tour | Crop Biotechnology Center">
+    <meta property="og:description" content="Explore the DA-Crop Biotechnology Center through an immersive 360 virtual tour featuring research spaces, facilities, and innovation highlights.">
+    <meta property="og:image" content="https://cbc360tour.philrice.gov.ph/thumbnail.png">
+    <meta property="og:image:secure_url" content="https://cbc360tour.philrice.gov.ph/thumbnail.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:alt" content="Preview of the DA-CBC Virtual Tour">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="DA-CBC Virtual Tour | Crop Biotechnology Center">
+    <meta name="twitter:description" content="Explore the DA-Crop Biotechnology Center through an immersive 360 virtual tour featuring research spaces, facilities, and innovation highlights.">
+    <meta name="twitter:image" content="https://cbc360tour.philrice.gov.ph/thumbnail.png">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <script src="lib/tdvplayer.js?v=1731920986256"></script>
